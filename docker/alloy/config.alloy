@@ -1,0 +1,70 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  Grafana Alloy — telemetry pipeline configuration
+//
+//  Data flow:
+//    App (OTLP HTTP :4318 / gRPC :4317)
+//      ├─ traces  → Tempo   (OTLP gRPC :4317 on the tempo container)
+//      └─ metrics → Mimir   (Prometheus remote_write :9009)
+//
+//  Logs are NOT routed through Alloy; pino-loki pushes them directly to Loki.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 1. Receive OTLP from the application ─────────────────────────────────────
+otelcol.receiver.otlp "app" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// ── 2. Batch spans / data-points for efficiency ───────────────────────────────
+otelcol.processor.batch "default" {
+  send_batch_size    = 1024
+  send_batch_max_size = 2048
+  timeout            = "5s"
+
+  output {
+    metrics = [otelcol.exporter.prometheus.to_mimir.input]
+    traces  = [otelcol.exporter.otlp.to_tempo.input]
+  }
+}
+
+// ── 3a. Export traces → Tempo (internal docker network) ──────────────────────
+otelcol.exporter.otlp "to_tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// ── 3b. Convert OTLP metrics → Prometheus format, then remote_write → Mimir ──
+otelcol.exporter.prometheus "to_mimir" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+  // Preserve resource attributes as metric labels
+  add_metric_suffixes = true
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+
+    queue_config {
+      capacity             = 10000
+      max_samples_per_send = 2000
+      batch_send_deadline  = "5s"
+    }
+  }
+}
+
+// ── 4. Alloy UI ───────────────────────────────────────────────────────────────
+// The built-in HTTP server exposes the Alloy graph UI on port 12345.
+// No explicit config needed; it starts automatically.

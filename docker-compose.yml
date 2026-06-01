@@ -1,0 +1,196 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Full-Observability Stack
+#  ┌─────────┐   OTLP    ┌───────┐  remote_write  ┌───────┐  S3  ┌───────┐
+#  │  App    │──────────▶│ Alloy │──────────────▶│ Mimir │─────▶│ MinIO │
+#  │ (NestJS)│           │       │  OTLP gRPC    ┌───────┐      └───────┘
+#  │         │           │       │──────────────▶│ Tempo │
+#  │         │  pino-loki└───────┘               └───────┘
+#  │         │──────────────────────────────────▶│  Loki │
+#  │         │  push profiles                    └───────┘
+#  │         │──────────────────────────────────▶│Pyroscope│
+#  └─────────┘                                   └─────────┘
+#                                    Grafana queries all 4 backends ──────────
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  minio-data:
+  grafana-data:
+
+services:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # MinIO  —  S3-compatible object store backing Mimir block storage
+  # ──────────────────────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: obs-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: mimir
+      MINIO_ROOT_PASSWORD: supersecret
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web Console  → http://localhost:9001
+    volumes:
+      - minio-data:/data
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot container that creates the required MinIO buckets
+  minio-init:
+    image: minio/mc:latest
+    container_name: obs-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 mimir supersecret;
+        mc mb --ignore-existing local/mimir-blocks;
+        echo 'MinIO buckets ready';
+      "
+    networks:
+      - observability
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana Mimir  —  Long-term metrics storage (Prometheus-compatible)
+  # Stores blocks in MinIO (S3 backend)
+  # ──────────────────────────────────────────────────────────────────────────
+  mimir:
+    image: grafana/mimir:latest
+    container_name: obs-mimir
+    command: -config.file=/etc/mimir/mimir.yaml
+    volumes:
+      - ./docker/mimir/mimir.yaml:/etc/mimir/mimir.yaml:ro
+    ports:
+      - "9009:9009"   # HTTP API + remote_write endpoint
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:9009/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana Loki  —  Log aggregation backend
+  # Receives logs from the app via pino-loki transport
+  # ──────────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: obs-loki
+    command: -config.file=/etc/loki/loki.yaml
+    volumes:
+      - ./docker/loki/loki.yaml:/etc/loki/loki.yaml:ro
+    ports:
+      - "3100:3100"   # Push API + query API
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana Tempo  —  Distributed tracing backend
+  # Receives OTLP traces forwarded by Alloy
+  # ──────────────────────────────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:latest
+    container_name: obs-tempo
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./docker/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # HTTP query API  (Grafana datasource)
+      # 4317 (OTLP gRPC) is intentionally NOT mapped to host;
+      # only Alloy reaches it via the docker network.
+    networks:
+      - observability
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3200/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana Pyroscope  —  Continuous profiling backend
+  # Receives CPU / heap profiles pushed by @pyroscope/nodejs SDK
+  # ──────────────────────────────────────────────────────────────────────────
+  pyroscope:
+    image: grafana/pyroscope:latest
+    container_name: obs-pyroscope
+    ports:
+      - "4040:4040"   # Push API + UI  → http://localhost:4040
+    networks:
+      - observability
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana Alloy  —  Telemetry collector / pipeline
+  # Single OTLP entry point for the app:
+  #   traces  → Tempo  (OTLP gRPC)
+  #   metrics → Mimir  (Prometheus remote_write)
+  # ──────────────────────────────────────────────────────────────────────────
+  alloy:
+    image: grafana/alloy:latest
+    container_name: obs-alloy
+    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
+    volumes:
+      - ./docker/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC  (app → Alloy)
+      - "4318:4318"   # OTLP HTTP  (app → Alloy)
+      - "12345:12345" # Alloy UI   → http://localhost:12345
+    depends_on:
+      mimir:
+        condition: service_started
+      tempo:
+        condition: service_started
+    networks:
+      - observability
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Grafana  —  Unified visualization
+  # Pre-provisioned datasources: Mimir, Loki, Tempo, Pyroscope
+  # Anonymous admin access enabled for the demo
+  # ──────────────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: obs-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor traceToMetrics metricsSummary correlations
+      - GF_SERVER_HTTP_PORT=3000
+      - GF_INSTALL_PLUGINS=grafana-pyroscope-app
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"   # Grafana UI → http://localhost:3000
+    depends_on:
+      mimir:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    networks:
+      - observability

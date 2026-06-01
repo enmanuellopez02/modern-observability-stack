@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Grafana Loki  —  single-binary mode with filesystem storage
+# ─────────────────────────────────────────────────────────────────────────────
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /tmp/loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+# ── Schema v13 with TSDB index ────────────────────────────────────────────────
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /tmp/loki/tsdb-index
+    cache_location:          /tmp/loki/tsdb-cache
+  filesystem:
+    directory: /tmp/loki/chunks
+
+# ── Ingester ──────────────────────────────────────────────────────────────────
+ingester:
+  chunk_idle_period:    3m
+  chunk_block_size:     262144
+  chunk_retain_period:  1m
+
+# ── Limits ────────────────────────────────────────────────────────────────────
+limits_config:
+  # Accept out-of-order logs (common in distributed systems)
+  reject_old_samples:         true
+  reject_old_samples_max_age: 168h
+  # Enable structured metadata (stores traceId/spanId efficiently)
+  allow_structured_metadata:  true
+  volume_enabled:             true
+  # Increase ingestion rate for the demo
+  ingestion_rate_mb:          32
+  ingestion_burst_size_mb:    64
+
+# ── Query ─────────────────────────────────────────────────────────────────────
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled:    true
+        max_size_mb: 100
+
+compactor:
+  working_directory:        /tmp/loki/retention
+  compaction_interval:      10m
+  retention_enabled:        true
+  retention_delete_delay:   2h
+  retention_delete_worker_count: 150
+  delete_request_store:     filesystem
+
+# ── Analytics (opt-out) ───────────────────────────────────────────────────────
+analytics:
+  reporting_enabled: false

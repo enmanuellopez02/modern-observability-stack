@@ -1,73 +1,128 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="200" alt="Nest Logo" /></a>
-</p>
+# Modern Observability Stack
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Full-stack observability demo built with **NestJS** + **OpenTelemetry**, visualised in **Grafana** using the complete LGTM+P stack.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Architecture
 
-## Description
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  NestJS App  (localhost:3001)                                            │
+│                                                                          │
+│  HTTP → Module1Controller → Module1Service → Module2Service → SQLite    │
+│                                                                          │
+│  ├── OTLP HTTP (traces + metrics) ──────────→ Alloy :4318               │
+│  ├── pino-loki (structured JSON logs) ──────→ Loki  :3100               │
+│  └── @pyroscope/nodejs (CPU + heap) ────────→ Pyroscope :4040           │
+└──────────────────────────────────────────────────────────────────────────┘
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Alloy  ──traces──→  Tempo  (local storage)
+Alloy  ──metrics──→ Mimir  (S3 blocks on MinIO)
 
-## Installation
-
-```bash
-$ npm install
+Grafana  →  queries Mimir + Loki + Tempo + Pyroscope
 ```
 
-## Running the app
+| Service    | Purpose                     | URL                      |
+|------------|-----------------------------|--------------------------|
+| App        | NestJS REST API             | http://localhost:3001    |
+| Grafana    | Unified dashboards          | http://localhost:3000    |
+| Alloy      | Telemetry pipeline UI       | http://localhost:12345   |
+| Mimir      | Metrics (remote_write)      | http://localhost:9009    |
+| Loki       | Log aggregation             | http://localhost:3100    |
+| Tempo      | Distributed tracing         | http://localhost:3200    |
+| Pyroscope  | Continuous profiling        | http://localhost:4040    |
+| MinIO      | S3 object storage           | http://localhost:9001    |
 
+## Quick start
+
+### 1. Start the infrastructure
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+docker-compose up -d
+# Wait ~30 s for all services to become healthy
+docker-compose ps
 ```
 
-## Test
-
+### 2. Install app dependencies
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
 ```
 
-## Support
+> **Note:** `@pyroscope/nodejs` requires native build tools.
+> macOS: `xcode-select --install` | Linux: `apt install build-essential python3`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### 3. Start the app
+```bash
+npm run start:dev
+```
 
-## Stay in touch
+### 4. Generate traffic
+```bash
+# Create items
+curl -s -X POST http://localhost:3001/process \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"widget-a","value":42,"category":"demo"}' | jq
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+curl -s http://localhost:3001/process | jq          # list all
+curl -s http://localhost:3001/process/1 | jq        # get one
+curl -s -X DELETE http://localhost:3001/process/1   # delete
+```
 
-## License
+### 5. Open Grafana
+http://localhost:3000 → **Observability Demo** folder → **Overview** dashboard.
 
-Nest is [MIT licensed](LICENSE).
+## Trace → Log → Metric correlation
+1. In Tempo, click any trace row to expand the waterfall.
+2. The side-panel shows **"Logs for this span"** (Loki query by traceId) and
+   **"Metrics"** (Mimir RED metrics derived from spans by Tempo's metrics generator).
+3. In Loki, any log line with a `TraceID` field shows a direct link back to Tempo.
+
+## Load simulation (Pyroscope demo)
+
+Set `LOAD_SIMULATION` in `.env` and restart the app:
+
+| Value    | Effect                                  | Visible in            |
+|----------|-----------------------------------------|-----------------------|
+| `cpu`    | 500 ms CPU loop per DB call             | Pyroscope CPU graph   |
+| `memory` | +50 MB heap retained per DB call        | Pyroscope heap graph  |
+| *(empty)*| Normal operation                        | —                     |
+
+```bash
+# Trigger CPU spike then hammer the endpoint
+LOAD_SIMULATION=cpu npm run start:dev &
+for i in $(seq 1 20); do
+  curl -s -X POST http://localhost:3001/process \
+    -H 'Content-Type: application/json' \
+    -d "{\"name\":\"item-$i\",\"value\":$i}" > /dev/null
+done
+```
+
+Open Pyroscope → http://localhost:4040 or the flame-graph panels in Grafana.
+The `simulateLoad` function will dominate the CPU profile, pointing clearly to
+`Module2Service` as the origin of the spike.
+
+## Project structure
+
+```
+src/
+├── tracing.ts                   ← OTel SDK init (MUST be first import)
+├── profiling.ts                 ← Pyroscope init
+├── main.ts
+├── app.module.ts
+├── shared/logger/
+│   ├── logger.module.ts         ← Global Pino (mixin injects traceId/spanId)
+│   └── logger.service.ts
+├── module1/
+│   ├── module1.controller.ts    ← HTTP endpoints
+│   └── module1.service.ts       ← Calls Module2, adds OTel spans
+└── module2/
+    ├── module2.service.ts       ← SQLite + load simulation
+    └── entities/item.entity.ts
+
+docker/
+├── alloy/config.alloy           ← OTLP pipeline (app → Tempo & Mimir)
+├── mimir/mimir.yaml             ← Monolithic + S3 on MinIO
+├── loki/loki.yaml
+├── tempo/tempo.yaml             ← + span-metrics generator → Mimir
+└── grafana/provisioning/
+    ├── datasources/             ← Mimir, Loki, Tempo, Pyroscope
+    └── dashboards/              ← overview.json
+```

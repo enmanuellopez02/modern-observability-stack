@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Grafana Tempo 3.x  —  single-binary (all-in-one) mode
+#
+#  Note: ingester, compactor, stream_over_http_enabled were removed in v3.
+#  WAL / block settings now live under storage.trace.
+# ─────────────────────────────────────────────────────────────────────────────
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+  log_level: warn
+
+# ── OTLP receivers (traces from Alloy) ───────────────────────────────────────
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+# ── Block / WAL storage (local filesystem for the demo) ──────────────────────
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/blocks
+    wal:
+      path: /tmp/tempo/wal
+    pool:
+      max_workers: 100
+      queue_depth:  10000
+
+# ── Metrics generator ─────────────────────────────────────────────────────────
+# Derives RED metrics (rate, errors, duration) and service-graph metrics from
+# spans, then remote_writes them to Mimir. This powers the Trace→Metrics links
+# inside Grafana's Tempo datasource.
+metrics_generator:
+  registry:
+    external_labels:
+      source:  tempo
+      cluster: observability-demo
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://mimir:9009/api/v1/push
+        send_exemplars: true
+
+# ── Per-tenant overrides: enable span-metrics + service-graph processors ─────
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics

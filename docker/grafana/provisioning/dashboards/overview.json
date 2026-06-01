@@ -1,0 +1,146 @@
+{
+  "id": null,
+  "uid": "obs-demo-overview",
+  "title": "Observability Demo — Overview",
+  "description": "Unified view: metrics (Mimir) + logs (Loki) + traces (Tempo) + profiles (Pyroscope)",
+  "tags": ["observability", "demo"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "observability-demo",
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+      "type": "timeseries",
+      "title": "Request Rate (spans/s)",
+      "datasource": { "uid": "mimir", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(traces_spanmetrics_calls_total{service=\"observability-demo\"}[$__rate_interval])) by (span_name)",
+          "legendFormat": "{{span_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+      "type": "timeseries",
+      "title": "Error Rate",
+      "datasource": { "uid": "mimir", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(traces_spanmetrics_calls_total{service=\"observability-demo\",status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval])) by (span_name)",
+          "legendFormat": "{{span_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "fixed", "fixedColor": "red" }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "type": "timeseries",
+      "title": "P99 Latency (ms)",
+      "datasource": { "uid": "mimir", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(traces_spanmetrics_duration_milliseconds_bucket{service=\"observability-demo\"}[$__rate_interval])) by (le, span_name))",
+          "legendFormat": "p99 {{span_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms" }
+      }
+    },
+    {
+      "id": 4,
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "type": "logs",
+      "title": "Application Logs (Loki)",
+      "datasource": { "uid": "loki", "type": "loki" },
+      "targets": [
+        {
+          "expr": "{app=\"observability-demo\"} | json",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 5,
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 10 },
+      "type": "traces",
+      "title": "Recent Traces (Tempo)",
+      "datasource": { "uid": "tempo", "type": "tempo" },
+      "targets": [
+        {
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"observability-demo\" }",
+          "limit": 20,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "gridPos": { "x": 0, "y": 26, "w": 12, "h": 10 },
+      "type": "flamegraph",
+      "title": "CPU Flame Graph (Pyroscope)",
+      "datasource": { "uid": "pyroscope", "type": "grafana-pyroscope-datasource" },
+      "targets": [
+        {
+          "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
+          "labelSelector": "{service_name=\"observability-demo\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "gridPos": { "x": 12, "y": 26, "w": 12, "h": 10 },
+      "type": "flamegraph",
+      "title": "Memory Heap (Pyroscope)",
+      "datasource": { "uid": "pyroscope", "type": "grafana-pyroscope-datasource" },
+      "targets": [
+        {
+          "profileTypeId": "memory:inuse_space:bytes:space:bytes",
+          "labelSelector": "{service_name=\"observability-demo\"}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

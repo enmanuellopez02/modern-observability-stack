@@ -1,0 +1,7 @@
+# Minimal alertmanager fallback config required by Mimir.
+# Routes all alerts to a no-op "blackhole" receiver so the demo
+# doesn't need a real notification channel configured.
+route:
+  receiver: blackhole
+receivers:
+  - name: blackhole

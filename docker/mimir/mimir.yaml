@@ -1,0 +1,78 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Grafana Mimir 3.x — single-process mode (all components in one process)
+#  Single S3 bucket in MinIO; inmemory ring KV store (single-node only).
+# ─────────────────────────────────────────────────────────────────────────────
+
+target: all,overrides-exporter
+
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: error
+
+# ── Common S3 backend (single bucket, prefixed) ───────────────────────────────
+common:
+  storage:
+    backend: s3
+    s3:
+      endpoint:          minio:9000
+      access_key_id:     mimir
+      secret_access_key: supersecret
+      insecure:          true
+      bucket_name:       mimir-blocks
+
+# ── Block storage ─────────────────────────────────────────────────────────────
+blocks_storage:
+  storage_prefix: blocks
+  tsdb:
+    dir: /tmp/mimir/tsdb
+  bucket_store:
+    sync_dir: /tmp/mimir/tsdb-sync
+
+# ── Compactor ─────────────────────────────────────────────────────────────────
+compactor:
+  data_dir: /tmp/mimir/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+# ── Distributor ───────────────────────────────────────────────────────────────
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+# ── Ingester ──────────────────────────────────────────────────────────────────
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+
+# ── Store-gateway ─────────────────────────────────────────────────────────────
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+# ── Ruler ─────────────────────────────────────────────────────────────────────
+ruler:
+  rule_path: /tmp/mimir/rules
+  ring:
+    kvstore:
+      store: inmemory
+
+ruler_storage:
+  s3:
+    bucket_name: mimir-blocks
+  storage_prefix: rules
+
+# ── Limits ────────────────────────────────────────────────────────────────────
+limits:
+  native_histograms_ingestion_enabled: true
+  compactor_blocks_retention_period: 7d
