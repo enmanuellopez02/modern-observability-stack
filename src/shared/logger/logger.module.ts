@@ -53,6 +53,11 @@ import { AppLoggerService } from './logger.service';
                     options: {
                       host: process.env.LOKI_URL,
                       labels: {
+                        // service_name is the OTel-standard label — Grafana
+                        // uses it for service filtering and Loki→Tempo trace
+                        // correlation via {service_name="observability-demo"}
+                        service_name:
+                          process.env.OTEL_SERVICE_NAME ?? 'observability-demo',
                         app:
                           process.env.OTEL_SERVICE_NAME ?? 'observability-demo',
                         env: process.env.NODE_ENV ?? 'development',

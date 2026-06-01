@@ -3,7 +3,14 @@
  * MUST be the very first import in main.ts so that all instrumented
  * packages (HTTP, NestJS, TypeORM, better-sqlite3, etc.) are patched
  * before they are first required.
+ *
+ * dotenv is loaded here (before anything else) so that all subsequent
+ * modules — including this file — read the correct process.env values
+ * from the .env file at startup.
  */
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('dotenv').config();
+
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { Resource } from '@opentelemetry/resources';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';

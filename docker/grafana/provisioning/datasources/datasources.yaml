@@ -48,7 +48,7 @@ datasources:
         filterBySpanID:     false
         customQuery:        true
         # LogQL query: find log lines whose JSON body contains this traceId
-        query: '{app="observability-demo"} | json | traceId=`${__span.traceId}`'
+        query: '{service_name="observability-demo"} | json | traceId=`${__span.traceId}`'
 
       # ── Trace → Metrics (Mimir) ───────────────────────────────────────────
       tracesToMetrics:

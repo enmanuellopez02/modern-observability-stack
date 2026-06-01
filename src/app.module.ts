@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SharedLoggerModule } from './shared/logger/logger.module';
 import { Module1Module } from './module1/module1.module';
@@ -7,6 +8,9 @@ import { Item } from './module2/entities/item.entity';
 
 @Module({
   imports: [
+    // ── Config (.env loader, global so all modules can inject ConfigService) ─
+    ConfigModule.forRoot({ isGlobal: true }),
+
     // ── Database (SQLite via better-sqlite3) ─────────────────────────────
     TypeOrmModule.forRoot({
       type: 'better-sqlite3',

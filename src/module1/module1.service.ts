@@ -1,9 +1,29 @@
 import { Injectable } from '@nestjs/common';
-import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { SpanStatusCode, metrics, trace } from '@opentelemetry/api';
 import { Module2Service } from '../module2/module2.service';
 import { AppLoggerService } from '../shared/logger/logger.service';
 
 const tracer = trace.getTracer('module1', '1.0.0');
+
+// ── Custom metrics ──────────────────────────────────────────────────────────
+// These are exported via OTLP → Alloy → Mimir so they appear in Grafana.
+const meter = metrics.getMeter('module1', '1.0.0');
+
+/** Total items created via POST /process, broken down by category. */
+const itemsCreatedCounter = meter.createCounter('items.created.total', {
+  description: 'Total number of items created via POST /process',
+  unit: '{items}',
+});
+
+/** End-to-end duration of processCreate including DB write, in milliseconds. */
+const itemCreateDurationHistogram = meter.createHistogram(
+  'items.create.duration',
+  {
+    description: 'Duration of processCreate including DB write',
+    unit: 'ms',
+    advice: { explicitBucketBoundaries: [5, 10, 25, 50, 100, 250, 500, 1000] },
+  },
+);
 
 /**
  * ProcessingService (Module 1)
@@ -90,9 +110,19 @@ export class Module1Service {
     category?: string;
   }) {
     return tracer.startActiveSpan('processing.processCreate', async (span) => {
-      span.setAttribute('item.name', data.name);
+      const startMs = Date.now();
+      // ── Capture all POST body fields as span attributes ─────────────
+      span.setAttributes({
+        'item.name': data.name,
+        'item.value': data.value,
+        'item.category': data.category ?? '',
+      });
       try {
-        this.logger.info('Creating and processing item', { name: data.name });
+        this.logger.info('Creating and processing item', {
+          name: data.name,
+          value: data.value,
+          category: data.category,
+        });
         const item = await this.dataService.create(data);
         const result = {
           ...item,
@@ -101,9 +131,17 @@ export class Module1Service {
           processed: true,
         };
         span.setAttribute('item.id', item.id);
+
+        // ── Increment OTel metrics ────────────────────────────────────
+        const labels = { category: data.category ?? 'none' };
+        itemsCreatedCounter.add(1, labels);
+        itemCreateDurationHistogram.record(Date.now() - startMs, labels);
+
         this.logger.info('Item created and processed', {
           id: item.id,
           name: item.name,
+          value: item.value,
+          category: item.category,
         });
         return result;
       } catch (err) {

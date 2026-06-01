@@ -85,7 +85,7 @@
       "datasource": { "uid": "loki", "type": "loki" },
       "targets": [
         {
-          "expr": "{app=\"observability-demo\"} | json",
+          "expr": "{service_name=\"observability-demo\"} | json",
           "refId": "A"
         }
       ],
@@ -141,6 +141,48 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 8,
+      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+      "type": "timeseries",
+      "title": "Items Created — POST /process (rate/s)",
+      "datasource": { "uid": "mimir", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(items_created_total[$__rate_interval])) by (category)",
+          "legendFormat": "category={{category}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+      "type": "timeseries",
+      "title": "Items Create Duration P99 (ms)",
+      "datasource": { "uid": "mimir", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(items_create_duration_milliseconds_bucket[$__rate_interval])) by (le, category))",
+          "legendFormat": "p99 category={{category}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(items_create_duration_milliseconds_bucket[$__rate_interval])) by (le, category))",
+          "legendFormat": "p50 category={{category}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms" }
+      }
     }
   ]
 }
