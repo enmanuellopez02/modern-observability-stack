@@ -181,9 +181,9 @@ export class Module2Service {
    * Simulates artificial resource pressure to produce visible spikes in
    * Pyroscope profiles. Controlled by the LOAD_SIMULATION environment variable.
    *
-   *  "cpu"    → Runs a tight math loop for ~500 ms.
+   *  "cpu"    → Runs a tight math loop for ~5000 ms.
    *             The function name will appear prominently in CPU flame graphs.
-   *  "memory" → Allocates a 50 MB Buffer retained in this.memoryLeakBucket.
+   *  "memory" → Allocates a 100 MB Buffer retained in this.memoryLeakBucket.
    *             Heap size grows with every request until the process is restarted.
    */
   private simulateLoad(): void {
@@ -191,7 +191,7 @@ export class Module2Service {
 
     if (loadType === 'cpu') {
       this.logger.warn('CPU load simulation active — intentional spike');
-      const deadline = Date.now() + 500;
+      const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
         // Busy-loop: shows up clearly in Pyroscope wall-clock profiles
         let acc = 0;
@@ -202,7 +202,7 @@ export class Module2Service {
         void acc;
       }
     } else if (loadType === 'memory') {
-      const chunkMb = 50;
+      const chunkMb = 1000;
       const chunk = Buffer.allocUnsafe(chunkMb * 1024 * 1024);
       // Touch every byte so the OS actually commits the memory
       chunk.fill(Math.floor(Math.random() * 256));
